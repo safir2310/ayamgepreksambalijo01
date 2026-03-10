@@ -1,0 +1,995 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { motion } from 'framer-motion';
+import { Search, Plus, Minus, Trash2, ShoppingCart, DollarSign, Printer, Clock, LogOut, CheckCircle2, X, Scan, Wallet, CreditCard, RefreshCw, Receipt } from 'lucide-react';
+import { useUIStore } from '@/store/ui-store';
+import { useUserStore } from '@/store/user-store';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { toast } from 'sonner';
+
+interface MenuItem {
+  id: string;
+  name: string;
+  description: string | null;
+  image: string | null;
+  price: number;
+  category: string;
+  categoryId: string;
+  available: boolean;
+  spicyLevel: number | null;
+}
+
+interface CartItem {
+  menuItemId: string;
+  name: string;
+  price: number;
+  quantity: number;
+  notes: string;
+}
+
+interface Order {
+  id: string;
+  orderNumber: string;
+  status: string;
+  total: number;
+  paymentMethod: string;
+  createdAt: string;
+}
+
+export function CashierPOSView() {
+  const { goBack, setCurrentView } = useUIStore();
+  const { user, logout } = useUserStore();
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [ewalletProvider, setEwalletProvider] = useState('');
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [processing, setProcessing] = useState(false);
+  const [todayOrders, setTodayOrders] = useState<Order[]>([]);
+  const [todaySales, setTodaySales] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [refreshCountdown, setRefreshCountdown] = useState(30);
+  const [cashReceived, setCashReceived] = useState('');
+  const [receiptDialogOpen, setReceiptDialogOpen] = useState(false);
+  const [completedOrder, setCompletedOrder] = useState<any>(null);
+
+  useEffect(() => {
+    fetchMenuItems();
+    fetchTodayStats();
+  }, []);
+
+  // Update time every second
+  useEffect(() => {
+    const timeInterval = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(timeInterval);
+  }, []);
+
+  // Countdown timer for auto-refresh
+  useEffect(() => {
+    const countdownInterval = setInterval(() => {
+      setRefreshCountdown((prev) => {
+        if (prev <= 1) {
+          // Reset to 30 seconds
+          return 30;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(countdownInterval);
+  }, []);
+
+  // Auto-refresh data every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setIsRefreshing(true);
+      setRefreshCountdown(30);
+      Promise.all([
+        fetchMenuItems(),
+        fetchTodayStats()
+      ]).finally(() => {
+        setTimeout(() => setIsRefreshing(false), 500);
+      });
+    }, 30000); // Refresh every 30 seconds
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const fetchMenuItems = async () => {
+    try {
+      const response = await fetch('/api/menu');
+      if (response.ok) {
+        const data = await response.json();
+        setMenuItems(data);
+
+        // Extract unique categories
+        const cats = Array.from(new Set(data.map((item: MenuItem) => item.category)));
+        setCategories(cats);
+      }
+    } catch (error) {
+      console.error('Error fetching menu:', error);
+      toast.error('Gagal memuat menu');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchTodayStats = async () => {
+    try {
+      const response = await fetch('/api/admin/stats');
+      if (response.ok) {
+        const data = await response.json();
+        setTodaySales(data.todayRevenue);
+      }
+    } catch (error) {
+      console.error('Error fetching stats:', error);
+    }
+  };
+
+  const filteredMenuItems = menuItems.filter((item) => {
+    const matchesCategory = selectedCategory === 'all' || item.category === selectedCategory;
+    const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesCategory && matchesSearch && item.available;
+  });
+
+  const addToCart = (menuItem: MenuItem) => {
+    const existingItem = cart.find((item) => item.menuItemId === menuItem.id);
+
+    if (existingItem) {
+      setCart(cart.map((item) =>
+        item.menuItemId === menuItem.id
+          ? { ...item, quantity: item.quantity + 1 }
+          : item
+      ));
+    } else {
+      setCart([...cart, {
+        menuItemId: menuItem.id,
+        name: menuItem.name,
+        price: menuItem.price,
+        quantity: 1,
+        notes: '',
+      }]);
+    }
+  };
+
+  const updateQuantity = (menuItemId: string, delta: number) => {
+    setCart(cart.map((item) =>
+      item.menuItemId === menuItem.id
+        ? { ...item, quantity: Math.max(1, item.quantity + delta) }
+        : item
+    ));
+  };
+
+  const updateNotes = (menuItemId: string, notes: string) => {
+    setCart(cart.map((item) =>
+      item.menuItemId === menuItem.id
+        ? { ...item, notes }
+        : item
+    ));
+  };
+
+  const removeFromCart = (menuItemId: string) => {
+    setCart(cart.filter((item) => item.menuItemId !== menuItemId));
+  };
+
+  const clearCart = () => {
+    setCart([]);
+    setCustomerName('');
+    setCustomerPhone('');
+  };
+
+  const cartTotal = cart.reduce((total, item) => total + (item.price * item.quantity), 0);
+  const cartCount = cart.reduce((total, item) => total + item.quantity, 0);
+
+  const handleCheckout = async () => {
+    if (cart.length === 0) {
+      toast.error('Keranjang kosong');
+      return;
+    }
+
+    setPaymentDialogOpen(true);
+  };
+
+  const processOrder = async () => {
+    if (!user?.id) {
+      toast.error('Session expired, silakan login kembali');
+      return;
+    }
+
+    // Validate payment method specific fields
+    if (paymentMethod === 'ewallet' && !ewalletProvider) {
+      toast.error('Pilih provider e-wallet');
+      return;
+    }
+
+    // Validate cash payment
+    if (paymentMethod === 'cash' && !isCashSufficient()) {
+      toast.error('Jumlah uang tunai kurang!');
+      return;
+    }
+
+    try {
+      setProcessing(true);
+
+      // Build payment details
+      let paymentDetails = paymentMethod.toUpperCase();
+      if (paymentMethod === 'ewallet') {
+        paymentDetails = `E-WALLET (${ewalletProvider.toUpperCase()})`;
+      } else if (paymentMethod === 'debit_card') {
+        paymentDetails = 'KARTU DEBIT';
+      }
+
+      const orderData = {
+        userId: user.id,
+        items: cart.map((item) => ({
+          menuId: item.menuItemId,
+          quantity: item.quantity,
+          price: item.price,
+          notes: item.notes,
+        })),
+        notes: `Customer: ${customerName || '-'}${customerPhone ? `, Phone: ${customerPhone}` : ''}${paymentMethod ? `, Payment: ${paymentDetails}` : ''}${paymentMethod === 'cash' ? `, Cash Received: Rp${parseInt(cashReceived).toLocaleString('id-ID')}, Change: Rp${calculateChange().toLocaleString('id-ID')}` : ''}`,
+        paymentMethod: paymentDetails,
+        paymentStatus: 'PAID',
+        subtotal: cartTotal,
+        deliveryFee: 0,
+        discount: 0,
+        total: cartTotal,
+      };
+
+      const response = await fetch('/api/orders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(orderData),
+      });
+
+      if (response.ok) {
+        const orderResult = await response.json();
+        
+        // Set completed order data for receipt
+        setCompletedOrder({
+          ...orderResult,
+          items: cart.map((item) => ({
+            ...item,
+            totalPrice: item.price * item.quantity
+          }))
+        });
+        
+        toast.success('✅ Order berhasil dibuat!');
+        setPaymentDialogOpen(false);
+        
+        // Show receipt dialog and auto print
+        setReceiptDialogOpen(true);
+        setTimeout(() => {
+          handlePrintReceipt();
+        }, 1000);
+        
+        clearCart();
+        setEwalletProvider('');
+        setCashReceived('');
+        fetchTodayStats();
+      } else {
+        const error = await response.json();
+        toast.error(error.error || 'Gagal membuat order');
+      }
+    } catch (error) {
+      console.error('Error processing order:', error);
+      toast.error('Gagal membuat order');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleLogout = () => {
+    logout();
+    setCurrentView('login');
+  };
+
+  const handleManualRefresh = () => {
+    setIsRefreshing(true);
+    Promise.all([
+      fetchMenuItems(),
+      fetchTodayStats()
+    ]).finally(() => {
+      setTimeout(() => setIsRefreshing(false), 500);
+    });
+    toast.success('Data diperbarui');
+  };
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('id-ID', {
+      style: 'currency',
+      currency: 'IDR',
+      minimumFractionDigits: 0,
+    }).format(amount);
+  };
+
+  const calculateChange = () => {
+    const received = parseInt(cashReceived) || 0;
+    return Math.max(0, received - cartTotal);
+  };
+
+  const isCashSufficient = () => {
+    const received = parseInt(cashReceived) || 0;
+    return received >= cartTotal;
+  };
+
+  const handlePrintReceipt = () => {
+    const printWindow = window.open('', '', 'width=400,height=600');
+    if (printWindow && completedOrder) {
+      printWindow.document.write(generateReceiptHTML());
+      printWindow.document.close();
+      setTimeout(() => {
+        printWindow.print();
+      }, 500);
+    }
+  };
+
+  const generateReceiptHTML = () => {
+    if (!completedOrder) return '';
+
+    const total = completedOrder.total || cartTotal;
+    const change = paymentMethod === 'cash' ? calculateChange() : 0;
+    const received = parseInt(cashReceived) || 0;
+
+    const itemsHtml = (completedOrder.items || cart).map((item, index) => {
+      const qty = item.quantity;
+      const name = item.name;
+      const price = formatCurrency(item.price * item.quantity);
+      return `<div class="item"><span>${qty}x ${name}</span><span>${price}</span></div>`;
+    }).join('');
+
+    const cashDetailsHtml = paymentMethod === 'cash' ? `<div class="item"><strong>Tunai Diterima:</strong> <strong>${formatCurrency(received)}</strong></div><div class="item"><strong>Kembalian:</strong> <strong>${formatCurrency(change)}</strong></div>` : '';
+
+    let paymentMethodText = 'Tunai';
+    if (paymentMethod === 'qris') {
+      paymentMethodText = 'QRIS';
+    } else if (paymentMethod === 'ewallet') {
+      paymentMethodText = `E-Wallet (${ewalletProvider})`;
+    } else if (paymentMethod === 'debit_card') {
+      paymentMethodText = 'Kartu Debit';
+    }
+
+    const orderInfo = `
+      <div class="line">
+        <p><strong>No. Order:</strong> ${completedOrder.orderNumber || 'N/A'}</p>
+        <p><strong>Tanggal:</strong> ${new Date().toLocaleString('id-ID')}</p>
+        <p><strong>Kasir:</strong> ${user?.name || user?.username || 'N/A'}</p>
+        <p><strong>Pelanggan:</strong> ${customerName || 'Umum'}</p>
+      </div>
+    `;
+
+    const totalsHtml = `
+      <div class="line">
+        <div class="item"><strong>Subtotal:</strong> <strong>${formatCurrency(total)}</strong></div>
+        <div class="item"><strong>Pajak (0%):</strong> <strong>Rp 0</strong></div>
+        ${cashDetailsHtml}
+        <div class="item total"><strong>TOTAL BAYAR:</strong> <strong>${formatCurrency(total)}</strong></div>
+      </div>
+    `;
+
+    const paymentHtml = `
+      <div class="line">
+        <p><strong>Metode Pembayaran:</strong> ${paymentMethodText}</p>
+      </div>
+    `;
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <title>Struk Pembayaran</title>
+  <style>
+    body { font-family: 'Courier New', monospace; padding: 20px; font-size: 12px; }
+    .header { text-align: center; margin-bottom: 20px; }
+    .header h1 { margin: 0; font-size: 18px; }
+    .line { border-top: 1px dashed #000; border-bottom: 1px dashed #000; padding: 10px 0; margin: 10px 0; }
+    .item { display: flex; justify-content: space-between; margin: 5px 0; }
+    .total { font-weight: bold; font-size: 14px; }
+    .footer { text-align: center; margin-top: 20px; font-size: 10px; }
+    @media print { body { padding: 0; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>AYAM GEPREK SAMBAL IJO</h1>
+    <p>Jalan Contoh No. 123</p>
+    <p>Telp: 0812-3456-7890</p>
+  </div>
+  ${orderInfo}
+  <div class="line">
+    <p style="text-align:center; font-weight:bold;">RINCIAN PESANAN</p>
+  </div>
+  ${itemsHtml}
+  ${totalsHtml}
+  ${paymentHtml}
+  <div class="footer">
+    <p>Terima kasih telah berbelanja!</p>
+    <p>Simpan struk ini sebagai bukti pembayaran</p>
+  </div>
+</body>
+</html>`;
+  };
+
+  return (
+    <div className="h-screen flex flex-col bg-gray-50">
+      {/* Header */}
+      <div className="bg-[#E53935] text-white p-4 shadow-lg">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleLogout}
+              className="h-9 w-9 text-white hover:bg-white/20"
+              title="Logout"
+            >
+              <LogOut className="w-5 h-5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleManualRefresh}
+              className="h-9 w-9 text-white hover:bg-white/20"
+              title="Refresh Data"
+            >
+              <RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
+            </Button>
+            <div>
+              <h1 className="text-xl font-bold">POS Kasir</h1>
+              <p className="text-sm opacity-90">
+                {user?.name || user?.username}
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-4 text-right items-center">
+            {isRefreshing ? (
+              <div className="text-xs opacity-90 flex items-center gap-2 animate-pulse">
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>Memuat...</span>
+              </div>
+            ) : (
+              <div className={`text-xs opacity-90 flex items-center gap-1 ${refreshCountdown <= 5 ? 'text-yellow-300' : ''}`}>
+                <RefreshCw className="w-3 h-3" />
+                <span>Auto-refresh: {refreshCountdown}s</span>
+              </div>
+            )}
+            <div>
+              <p className="text-xs opacity-90">Penjualan Hari Ini</p>
+              <p className="text-lg font-bold">{formatCurrency(todaySales)}</p>
+            </div>
+            <div>
+              <p className="text-xs opacity-90">Waktu</p>
+              <p className="text-lg font-bold">{currentTime.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Menu Section */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Search and Categories */}
+          <div className="p-4 bg-white border-b">
+            <div className="relative mb-3">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Input
+                placeholder="Cari menu..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            <ScrollArea className="w-full">
+              <div className="flex gap-2 pb-2">
+                <Button
+                  size="sm"
+                  variant={selectedCategory === 'all' ? 'default' : 'outline'}
+                  onClick={() => setSelectedCategory('all')}
+                  className={selectedCategory === 'all' ? 'bg-[#E53935] hover:bg-[#D32F2F] text-white' : ''}
+                >
+                  Semua
+                </Button>
+                {categories.map((cat) => (
+                  <Button
+                    key={cat}
+                    size="sm"
+                    variant={selectedCategory === cat ? 'default' : 'outline'}
+                    onClick={() => setSelectedCategory(cat)}
+                    className={selectedCategory === cat ? 'bg-[#E53935] hover:bg-[#D32F2F] text-white' : ''}
+                  >
+                    {cat}
+                  </Button>
+                ))}
+              </div>
+            </ScrollArea>
+          </div>
+
+          {/* Menu Items Grid */}
+          <ScrollArea className="flex-1 p-4">
+            {loading ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {[...Array(8)].map((_, i) => (
+                  <Card key={i}>
+                    <CardContent className="p-4">
+                      <div className="h-32 bg-gray-200 rounded mb-3 animate-pulse" />
+                      <div className="h-4 bg-gray-200 rounded mb-2 animate-pulse" />
+                      <div className="h-4 bg-gray-200 rounded w-2/3 animate-pulse" />
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : filteredMenuItems.length === 0 ? (
+              <div className="text-center py-12">
+                <ShoppingCart className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                <p className="text-gray-500">Tidak ada menu ditemukan</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {filteredMenuItems.map((item) => (
+                  <motion.div
+                    key={item.id}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    <Card
+                      className="cursor-pointer hover:shadow-lg transition-shadow h-full"
+                      onClick={() => addToCart(item)}
+                    >
+                      {item.image && (
+                        <div className="h-32 overflow-hidden bg-gray-100">
+                          <img
+                            src={item.image}
+                            alt={item.name}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                      )}
+                      <CardContent className="p-3">
+                        <h3 className="font-semibold text-sm line-clamp-2 mb-1">{item.name}</h3>
+                        <p className="text-[#E53935] font-bold">{formatCurrency(item.price)}</p>
+                        {item.spicyLevel && item.spicyLevel > 0 && (
+                          <div className="flex gap-0.5 mt-2">
+                            {[...Array(Math.min(item.spicyLevel, 5))].map((_, i) => (
+                              <div key={i} className="w-2 h-2 rounded-full bg-[#E53935]" />
+                            ))}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                ))}
+              </div>
+            )}
+          </ScrollArea>
+        </div>
+
+        {/* Cart Section */}
+        <div className="w-96 bg-white border-l flex flex-col">
+          <div className="p-4 border-b bg-gray-50">
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold text-lg">Keranjang</h2>
+              <Badge variant="outline">{cartCount} item</Badge>
+            </div>
+          </div>
+
+          <ScrollArea className="flex-1 p-4">
+            {cart.length === 0 ? (
+              <div className="text-center py-12">
+                <ShoppingCart className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                <p className="text-gray-500">Keranjang kosong</p>
+                <p className="text-sm text-gray-400">Klik menu untuk menambah</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {cart.map((item) => (
+                  <motion.div
+                    key={item.menuItemId}
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                  >
+                    <Card>
+                      <CardContent className="p-3">
+                        <div className="flex items-start justify-between mb-2">
+                          <h3 className="font-semibold text-sm flex-1">{item.name}</h3>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => removeFromCart(item.menuItemId)}
+                            className="h-6 w-6 text-red-500 hover:text-red-600"
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                        </div>
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-sm font-semibold text-[#E53935]">{formatCurrency(item.price)}</p>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => updateQuantity(item.menuItemId, -1)}
+                              className="h-7 w-7"
+                            >
+                              <Minus className="w-3 h-3" />
+                            </Button>
+                            <span className="w-8 text-center font-medium">{item.quantity}</span>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => updateQuantity(item.menuItemId, 1)}
+                              className="h-7 w-7"
+                            >
+                              <Plus className="w-3 h-3" />
+                            </Button>
+                          </div>
+                        </div>
+                        <Textarea
+                          placeholder="Catatan..."
+                          value={item.notes}
+                          onChange={(e) => updateNotes(item.menuItemId, e.target.value)}
+                          className="text-sm min-h-[60px] resize-none"
+                          rows={2}
+                        />
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                ))}
+              </div>
+            )}
+          </ScrollArea>
+
+          {/* Cart Footer */}
+          <div className="p-4 border-t bg-gray-50 space-y-3">
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-600">Subtotal</span>
+              <span className="font-medium">{formatCurrency(cartTotal)}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-600">Pajak (0%)</span>
+              <span className="font-medium">Rp 0</span>
+            </div>
+            <div className="flex justify-between text-lg font-bold border-t pt-3">
+              <span>Total</span>
+              <span className="text-[#E53935]">{formatCurrency(cartTotal)}</span>
+            </div>
+            <Button
+              onClick={handleCheckout}
+              disabled={cart.length === 0}
+              className="w-full bg-[#E53935] hover:bg-[#D32F2F] text-white h-12 text-lg font-semibold"
+            >
+              <DollarSign className="w-5 h-5 mr-2" />
+              Bayar
+            </Button>
+            {cart.length > 0 && (
+              <Button
+                variant="outline"
+                onClick={clearCart}
+                className="w-full"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Kosongkan Keranjang
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Payment Dialog */}
+      <Dialog open={paymentDialogOpen} onOpenChange={(open) => {
+        setPaymentDialogOpen(open);
+        if (!open) {
+          setEwalletProvider('');
+          setCashReceived('');
+        }
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <DollarSign className="w-5 h-5 text-[#E53935]" />
+              Pembayaran
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="bg-gray-50 p-4 rounded-lg">
+              <div className="text-sm text-gray-600 mb-1">Total Pembayaran</div>
+              <div className="text-3xl font-bold text-[#E53935]">{formatCurrency(cartTotal)}</div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Metode Pembayaran</Label>
+              <div className="grid grid-cols-2 gap-3">
+                <Button
+                  type="button"
+                  variant={paymentMethod === 'cash' ? 'default' : 'outline'}
+                  onClick={() => {
+                    setPaymentMethod('cash');
+                    setCashReceived('');
+                  }}
+                  className={paymentMethod === 'cash' ? 'bg-[#E53935] hover:bg-[#D32F2F]' : ''}
+                >
+                  <DollarSign className="w-4 h-4 mr-2" />
+                  Tunai
+                </Button>
+                <Button
+                  type="button"
+                  variant={paymentMethod === 'qris' ? 'default' : 'outline'}
+                  onClick={() => {
+                    setPaymentMethod('qris');
+                    setCashReceived('');
+                  }}
+                  className={paymentMethod === 'qris' ? 'bg-[#E53935] hover:bg-[#D32F2F]' : ''}
+                >
+                  <Scan className="w-4 h-4 mr-2" />
+                  QRIS
+                </Button>
+                <Button
+                  type="button"
+                  variant={paymentMethod === 'ewallet' ? 'default' : 'outline'}
+                  onClick={() => {
+                    setPaymentMethod('ewallet');
+                    setCashReceived('');
+                  }}
+                  className={paymentMethod === 'ewallet' ? 'bg-[#E53935] hover:bg-[#D32F2F]' : ''}
+                >
+                  <Wallet className="w-4 h-4 mr-2" />
+                  E-Wallet
+                </Button>
+                <Button
+                  type="button"
+                  variant={paymentMethod === 'debit_card' ? 'default' : 'outline'}
+                  onClick={() => {
+                    setPaymentMethod('debit_card');
+                    setCashReceived('');
+                  }}
+                  className={paymentMethod === 'debit_card' ? 'bg-[#E53935] hover:bg-[#D32F2F]' : ''}
+                >
+                  <CreditCard className="w-4 h-4 mr-2" />
+                  Kartu Debit
+                </Button>
+              </div>
+            </div>
+
+            {paymentMethod === 'ewallet' && (
+              <div className="space-y-2">
+                <Label htmlFor="ewalletProvider">Pilih E-Wallet</Label>
+                <Select value={ewalletProvider} onValueChange={setEwalletProvider}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Pilih e-wallet" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="gopay">GoPay</SelectItem>
+                    <SelectItem value="ovo">OVO</SelectItem>
+                    <SelectItem value="dana">DANA</SelectItem>
+                    <SelectItem value="linkaja">LinkAja</SelectItem>
+                    <SelectItem value="shopeepay">ShopeePay</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {paymentMethod === 'debit_card' && (
+              <div className="space-y-2">
+                <Label htmlFor="cardNumber">Nomor Kartu (4 digit terakhir)</Label>
+                <Input
+                  id="cardNumber"
+                  type="text"
+                  placeholder="XXXX"
+                  maxLength={4}
+                  className="uppercase"
+                />
+              </div>
+            )}
+
+            {paymentMethod === 'cash' && (
+              <div className="space-y-3 bg-orange-50 p-4 rounded-lg border border-orange-200">
+                <Label htmlFor="cashReceived" className="text-orange-900 font-semibold">Uang Tunai Diterima</Label>
+                <Input
+                  id="cashReceived"
+                  type="number"
+                  placeholder="Masukkan nominal uang tunai"
+                  value={cashReceived}
+                  onChange={(e) => setCashReceived(e.target.value)}
+                  className="text-lg font-semibold"
+                />
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-gray-600">Kembalian:</span>
+                  <span className={`font-bold ${isCashSufficient() ? 'text-green-600' : 'text-red-600'}`}>
+                    {formatCurrency(calculateChange())}
+                  </span>
+                </div>
+                {!isCashSufficient() && cashReceived && (
+                  <p className="text-red-600 text-xs flex items-center gap-1">
+                    <X className="w-3 h-3" />
+                    Jumlah uang kurang {formatCurrency(cartTotal - (parseInt(cashReceived) || 0))}
+                  </p>
+                )}
+                {isCashSufficient() && cashReceived && (
+                  <p className="text-green-600 text-xs flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" />
+                    Uang tunai cukup
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="customerName">Nama Pelanggan (Opsional)</Label>
+              <Input
+                id="customerName"
+                placeholder="Masukkan nama pelanggan"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="customerPhone">Nomor Telepon (Opsional)</Label>
+              <Input
+                id="customerPhone"
+                type="tel"
+                placeholder="Masukkan nomor telepon"
+                value={customerPhone}
+                onChange={(e) => setCustomerPhone(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPaymentDialogOpen(false)}>
+              Batal
+            </Button>
+            <Button
+              onClick={processOrder}
+              disabled={processing || (paymentMethod === 'cash' && !isCashSufficient())}
+              className="bg-[#E53935] hover:bg-[#D32F2F] text-white"
+            >
+              {processing ? 'Memproses...' : 'Proses dan Cetak Struk'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Receipt Dialog */
+      <Dialog open={receiptDialogOpen} onOpenChange={setReceiptDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Receipt className="w-5 h-5 text-[#E53935]" />
+              Struk Pembayaran
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            {completedOrder && (
+              <div className="bg-white border-2 border-gray-200 rounded-lg p-6 font-mono text-sm">
+                {/* Header */}
+                <div className="text-center mb-6 pb-4 border-b-2 border-dashed">
+                  <h2 className="text-xl font-bold mb-2">🍗 AYAM GEPREK SAMBAL IJO</h2>
+                  <p className="text-xs text-gray-600">Jalan Contoh No. 123</p>
+                  <p className="text-xs text-gray-600">Telp: 0812-3456-7890</p>
+                </div>
+
+                {/* Order Info */}
+                <div className="mb-6 pb-4 border-b-2 border-dashed space-y-1">
+                  <div className="flex justify-between">
+                    <span>No. Order:</span>
+                    <span className="font-semibold">{completedOrder.orderNumber || 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Tanggal:</span>
+                    <span className="font-semibold">{new Date().toLocaleString('id-ID')}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Kasir:</span>
+                    <span className="font-semibold">{user?.name || user?.username || 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Pelanggan:</span>
+                    <span className="font-semibold">{customerName || 'Umum'}</span>
+                  </div>
+                </div>
+
+                {/* Items */}
+                <div className="mb-6 pb-4 border-b-2 border-dashed">
+                  <div className="text-center font-bold mb-4">RINCIAN PESANAN</div>
+                  <div className="space-y-2">
+                    {(completedOrder.items || cart).map((item: any, index: number) => (
+                      <div key={index} className="flex justify-between">
+                        <span>{item.quantity}x {item.name}</span>
+                        <span className="font-semibold">{formatCurrency(item.price * item.quantity)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Totals */}
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span>Subtotal:</span>
+                    <span className="font-semibold">{formatCurrency(completedOrder.total || cartTotal)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Pajak (0%):</span>
+                    <span className="font-semibold">Rp 0</span>
+                  </div>
+                  {paymentMethod === 'cash' && (
+                    <>
+                      <div className="flex justify-between">
+                        <span>Tunai Diterima:</span>
+                        <span className="font-semibold">{formatCurrency(parseInt(cashReceived) || 0)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Kembalian:</span>
+                        <span className="font-semibold text-green-600">{formatCurrency(calculateChange())}</span>
+                      </div>
+                    </>
+                  )}
+                  <div className="flex justify-between text-lg font-bold pt-2 border-t">
+                    <span>TOTAL BAYAR:</span>
+                    <span className="text-[#E53935]">{formatCurrency(completedOrder.total || cartTotal)}</span>
+                  </div>
+                </div>
+
+                {/* Payment Method */}
+                <div className="mt-6 pt-4 border-t-2 border-dashed text-center">
+                  <p className="text-sm">
+                    <span className="font-semibold">Metode Pembayaran:</span>{' '}
+                    {paymentMethod === 'cash' ? 'Tunai' : paymentMethod === 'qris' ? 'QRIS' : paymentMethod === 'ewallet' ? `E-Wallet (${ewalletProvider})` : 'Kartu Debit'}
+                  </p>
+                </div>
+
+                {/* Footer */}
+                <div className="mt-6 pt-4 border-t-2 border-dashed text-center text-xs">
+                  <p className="mb-2">Terima kasih telah berbelanja!</p>
+                  <p>Simpan struk ini sebagai bukti pembayaran</p>
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setReceiptDialogOpen(false)}
+            >
+              Tutup
+            </Button>
+            <Button
+              onClick={handlePrintReceipt}
+              className="bg-[#E53935] hover:bg-[#D32F2F] text-white"
+            >
+              <Printer className="w-4 h-4 mr-2" />
+              Cetak Ulang
+            </Button>
+            <Button
+              onClick={() => {
+                setReceiptDialogOpen(false);
+                toast.success('Transaksi selesai!');
+              }}
+              className="bg-green-600 hover:bg-green-700 text-white"
+            >
+              <CheckCircle2 className="w-4 h-4 mr-2" />
+              Transaksi Selesai
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

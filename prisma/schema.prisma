@@ -1,0 +1,309 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model for customers
+model User {
+  id            String    @id @default(cuid())
+  username      String?   @unique
+  password      String?
+  email         String?   @unique
+  phone         String?   @unique
+  name          String?
+  avatar        String?
+  role          String    @default("user") // "user", "admin", or "cashier"
+  points        Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  orders        Order[]
+  addresses     Address[]
+  favorites     Favorite[]
+  cartItems     CartItem[]
+  rewardRedemptions RewardRedemption[]
+  redeemCodes    RedeemCode[]
+  shifts        Shift[]
+}
+
+// Cashier Shift
+model Shift {
+  id              String      @id @default(cuid())
+  shiftNumber     String      @unique
+  cashierId       String
+  cashier         User        @relation(fields: [cashierId], references: [id])
+  startTime       DateTime    @default(now())
+  endTime         DateTime?
+  openingBalance  Int         @default(0) // Modal awal kasir
+  closingBalance  Int?        // Saldo akhir di kasir
+  cashReceived    Int         @default(0) // Total tunai diterima
+  expectedCash    Int?        // Cash yang seharusnya ada (opening + cashReceived)
+  cashDifference  Int?        // Selisih cash
+  totalOrders     Int         @default(0)
+  totalSales      Int         @default(0) // Total penjualan (termasuk non-cash)
+  cardPayments    Int         @default(0) // Pembayaran kartu
+  ewalletPayments Int         @default(0) // Pembayaran e-wallet
+  qrisPayments    Int         @default(0) // Pembayaran QRIS
+  status          ShiftStatus @default(OPEN)
+  notes           String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  // Relations
+  orders          Order[]
+}
+
+// Category for menu items
+model Category {
+  id          String    @id @default(cuid())
+  name        String
+  slug        String    @unique
+  description String?
+  icon        String?
+  order       Int       @default(0)
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  menuItems   MenuItem[]
+}
+
+// Menu items
+model MenuItem {
+  id                String    @id @default(cuid())
+  name              String
+  slug              String    @unique
+  description       String?
+  image             String?
+  price             Int
+  discountPercent   Int       @default(0) // 0-100, untuk diskon
+  rating            Float     @default(0)
+  reviewCount       Int       @default(0)
+  category          String
+  categoryId        String
+  available         Boolean   @default(true)
+  spicyLevel        Int?      @default(0) // 0-10
+  isPopular         Boolean   @default(false)
+  isPromo           Boolean   @default(false) // untuk produk promo
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  categoryRel       Category  @relation(fields: [categoryId], references: [id])
+  orderItems        OrderItem[]
+  cartItems         CartItem[]
+  favorites         Favorite[]
+}
+
+// Order
+model Order {
+  id              String      @id @default(cuid())
+  orderNumber     String      @unique
+  userId          String?
+  user            User?       @relation(fields: [userId], references: [id])
+  shiftId         String?
+  shift           Shift?      @relation(fields: [shiftId], references: [id])
+  status          OrderStatus @default(PENDING)
+  paymentMethod   String?
+  paymentStatus   String      @default("UNPAID")
+  subtotal        Int
+  deliveryFee     Int         @default(0)
+  discount        Int         @default(0)
+  redeemCodeId     String?    // Kode redeem yang digunakan
+  total           Int
+  notes           String?
+  address         String?
+  estimatedTime   Int?        // in minutes
+  completedAt     DateTime?
+  cancelledAt     DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  // Relations
+  items           OrderItem[]
+  redeemCode      RedeemCode? @relation(fields: [redeemCodeId], references: [id])
+}
+
+// Order items
+model OrderItem {
+  id          String    @id @default(cuid())
+  orderId     String
+  order       Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuId      String
+  menu        MenuItem  @relation(fields: [menuId], references: [id])
+  quantity    Int
+  price       Int       // price at time of order
+  options     String?   // JSON string for spicy level, extra cheese, etc.
+  notes       String?
+  createdAt   DateTime  @default(now())
+}
+
+// Cart item (for guest or logged-in users)
+model CartItem {
+  id          String    @id @default(cuid())
+  userId      String?
+  user        User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  menuId      String
+  menu        MenuItem  @relation(fields: [menuId], references: [id])
+  quantity    Int
+  options     String?   // JSON string for spicy level, extra cheese, etc.
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([userId, menuId, options])
+}
+
+// Saved addresses
+model Address {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label       String?  // Home, Office, etc.
+  address     String
+  district    String?
+  city        String?
+  province    String?
+  postalCode  String?
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// Favorite menu items
+model Favorite {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  menuId    String
+  menu      MenuItem @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, menuId])
+}
+
+// Promo/Voucher
+model Promo {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  description String?
+  type        PromoType
+  value       Int      // percentage or fixed amount
+  minOrder    Int?     @default(0)
+  maxDiscount Int?
+  usageLimit  Int?
+  usedCount   Int      @default(0)
+  startDate   DateTime
+  endDate     DateTime
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// Point transactions
+model PointTransaction {
+  id        String        @id @default(cuid())
+  userId    String
+  orderId   String?
+  type      PointType
+  points    Int
+  description String?
+  createdAt DateTime      @default(now())
+}
+
+// Reward items (products that can be redeemed with points)
+model RewardItem {
+  id          String              @id @default(cuid())
+  name        String
+  description String?
+  image       String?
+  pointsCost  Int                 // points required to redeem
+  stock       Int                 @default(0) // -1 for unlimited
+  category    String?             @default("general")
+  active      Boolean             @default(true)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  // Relations
+  redemptions RewardRedemption[]
+}
+
+// Reward redemptions (history of point redemptions)
+model RewardRedemption {
+  id          String      @id @default(cuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id])
+  rewardId    String
+  reward      RewardItem  @relation(fields: [rewardId], references: [id])
+  pointsUsed  Int
+  status      RedemptionStatus @default(PENDING)
+  notes       String?
+  completedAt DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+// Redeem Code (one-time use code from point redemption)
+model RedeemCode {
+  id          String   @id @default(cuid())
+  code        String   @unique  // 8-character code
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  pointsUsed  Int
+  discountPercent Int    @default(0)  // Percentage discount
+  discountValue  Int    @default(0)    // Fixed discount amount
+  isUsed      Boolean  @default(false)
+  usedAt      DateTime?
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  // Relations
+  orders      Order[]
+
+  @@index([code])
+  @@index([userId, isUsed])
+}
+
+// Enums
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  READY
+  DELIVERING
+  COMPLETED
+  CANCELLED
+}
+
+enum PromoType {
+  PERCENTAGE
+  FIXED
+}
+
+enum PointType {
+  EARNED
+  REDEEMED
+  ADJUSTED
+}
+
+enum RedemptionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
+enum ShiftStatus {
+  OPEN
+  CLOSED
+}

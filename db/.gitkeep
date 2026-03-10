@@ -1,0 +1,3 @@
+# This folder is for local SQLite database files
+# Files in this folder are git-ignored
+# For production (Vercel), use PostgreSQL (Neon)
