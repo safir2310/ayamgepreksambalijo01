@@ -25,10 +25,14 @@ interface MenuItem {
   description?: string;
   image?: string;
   price: number;
+  discountPercent: number;
   rating: number;
   reviewCount: number;
   category: string;
   spicyLevel?: number;
+  isPopular: boolean;
+  isPromo: boolean;
+  createdAt: string;
 }
 
 export function HomeView() {
