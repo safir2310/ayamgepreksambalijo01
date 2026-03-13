@@ -4,11 +4,12 @@ import { db } from '@/lib/db';
 // GET /api/admin/redemptions/[id] - Get redemption by ID
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const redemption = await db.rewardRedemption.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         user: {
           select: {
@@ -53,9 +54,10 @@ export async function GET(
 // PUT /api/admin/redemptions/[id] - Update redemption status
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const body = await request.json();
     const { status, notes } = body;
 
@@ -70,7 +72,7 @@ export async function PUT(
 
     // Check if redemption exists
     const existingRedemption = await db.rewardRedemption.findUnique({
-      where: { id: params.id },
+      where: { id },
     });
 
     if (!existingRedemption) {
@@ -107,7 +109,7 @@ export async function PUT(
 
     // Update redemption
     const redemption = await db.rewardRedemption.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         status,
         notes,

@@ -77,7 +77,9 @@ export async function POST(request: NextRequest) {
     const orderNumber = `ORD${Date.now().toString().slice(-8)}`;
 
     // Find active shift for this cashier (if userId is a cashier)
-    let activeShift = null;
+    let activeShift: any = null;
+    let shiftId: string | null = null;
+
     if (userId) {
       activeShift = await db.shift.findFirst({
         where: {
@@ -85,13 +87,17 @@ export async function POST(request: NextRequest) {
           status: 'OPEN',
         },
       });
+
+      if (activeShift) {
+        shiftId = activeShift.id;
+      }
     }
 
     const order = await db.order.create({
       data: {
         orderNumber,
         userId,
-        shiftId: activeShift?.id,
+        shiftId,
         status: 'PENDING',
         paymentMethod,
         paymentStatus,

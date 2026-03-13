@@ -1,6 +1,21 @@
 {
   "buildCommand": "prisma generate && next build",
   "devCommand": "next dev",
-  "installCommand": "npm install",
-  "framework": "nextjs"
+  "installCommand": "bun install",
+  "framework": "nextjs",
+  "regions": ["sin1"],
+  "env": {
+    "DATABASE_URL": "@database-url",
+    "POSTGRES_URL": "@postgres-url",
+    "POSTGRES_PRISMA_URL": "@postgres-prisma-url",
+    "POSTGRES_USER": "@postgres-user",
+    "POSTGRES_PASSWORD": "@postgres-password",
+    "POSTGRES_HOST": "@postgres-host",
+    "POSTGRES_DATABASE": "@postgres-database"
+  },
+  "build": {
+    "env": {
+      "DATABASE_URL": "@database-url"
+    }
+  }
 }

@@ -4,11 +4,12 @@ import { db } from '@/lib/db';
 // GET /api/admin/rewards/[id] - Get reward by ID
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const reward = await db.rewardItem.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         _count: {
           select: {
@@ -54,15 +55,16 @@ export async function GET(
 // PUT /api/admin/rewards/[id] - Update reward
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const body = await request.json();
     const { name, description, image, pointsCost, stock, category, active } = body;
 
     // Check if reward exists
     const existingReward = await db.rewardItem.findUnique({
-      where: { id: params.id },
+      where: { id },
     });
 
     if (!existingReward) {
@@ -83,7 +85,7 @@ export async function PUT(
     if (active !== undefined) updateData.active = active;
 
     const reward = await db.rewardItem.update({
-      where: { id: params.id },
+      where: { id },
       data: updateData,
     });
 
@@ -100,12 +102,13 @@ export async function PUT(
 // DELETE /api/admin/rewards/[id] - Delete reward
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     // Check if reward exists
     const existingReward = await db.rewardItem.findUnique({
-      where: { id: params.id },
+      where: { id },
     });
 
     if (!existingReward) {
@@ -117,7 +120,7 @@ export async function DELETE(
 
     // Delete reward
     await db.rewardItem.delete({
-      where: { id: params.id },
+      where: { id },
     });
 
     return NextResponse.json({ success: true });

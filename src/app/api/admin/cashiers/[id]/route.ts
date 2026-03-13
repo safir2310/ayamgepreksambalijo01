@@ -5,12 +5,13 @@ import bcrypt from 'bcryptjs';
 // GET /api/admin/cashiers/[id] - Get cashier by ID
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const cashier = await db.user.findFirst({
       where: {
-        id: params.id,
+        id,
         role: 'cashier',
       },
       select: {
@@ -47,16 +48,17 @@ export async function GET(
 // PUT /api/admin/cashiers/[id] - Update cashier
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const body = await request.json();
     const { username, password, name, email, phone, avatar } = body;
 
     // Check if cashier exists
     const existingCashier = await db.user.findFirst({
       where: {
-        id: params.id,
+        id,
         role: 'cashier',
       },
     });
@@ -124,7 +126,7 @@ export async function PUT(
     // Update cashier
     const cashier = await db.user.update({
       where: {
-        id: params.id,
+        id,
       },
       data: updateData,
       select: {
@@ -154,13 +156,14 @@ export async function PUT(
 // DELETE /api/admin/cashiers/[id] - Delete cashier
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     // Check if cashier exists
     const existingCashier = await db.user.findFirst({
       where: {
-        id: params.id,
+        id,
         role: 'cashier',
       },
     });
@@ -175,7 +178,7 @@ export async function DELETE(
     // Delete cashier
     await db.user.delete({
       where: {
-        id: params.id,
+        id,
       },
     });
 
